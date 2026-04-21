@@ -8,7 +8,7 @@ export default function Monitor() {
   const [sessionName, setSessionName] = useState('');
   const [activeMatches, setActiveMatches] = useState([]);
   const canvasRef = useRef(null);
-  
+
   const handleMatch = (matches) => {
     setActiveMatches(prev => {
       const merged = [...prev];
@@ -23,12 +23,53 @@ export default function Monitor() {
   };
   
   const webcamRef = useAttendanceCapture(session?.id, handleMatch);
-  
+
+  // Restore session from sessionStorage on mount
+  useEffect(() => {
+    const saved = sessionStorage.getItem('active_session');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setSession(parsed);
+        console.log('Restored session:', parsed.id);
+      } catch(e) {
+        sessionStorage.removeItem('active_session');
+      }
+    }
+  }, []);
+
+  // Handle page refresh / close automatically
+  useEffect(() => {
+    const handleUnload = () => {
+      const saved = sessionStorage.getItem('active_session');
+      if (saved) {
+        const s = JSON.parse(saved);
+        // Use sendBeacon for reliable fire-and-forget on unload
+        const payload = JSON.stringify({ 
+          session_id: s.id, 
+          submitted_by: 'auto' 
+        });
+        navigator.sendBeacon(
+          `${import.meta.env.VITE_API_BASE_URL || '/api'}/attendance/submit`,
+          new Blob([payload], { type: 'application/json' })
+        );
+        sessionStorage.removeItem('active_session');
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [session]);
+
   const startSession = async () => {
-    if (!sessionName) return;
+    if (!sessionName.trim()) return;
     try {
-      const { data } = await api.post('/attendance/sessions', { session_name: sessionName });
+      const { data } = await api.post('/attendance/sessions', { 
+        session_name: sessionName 
+      });
       setSession(data);
+      setSessionName('');
+      // Persist session across tab navigation
+      sessionStorage.setItem('active_session', JSON.stringify(data));
     } catch(e) {
       console.error(e);
     }
@@ -38,6 +79,7 @@ export default function Monitor() {
     if (!session) return;
     try {
       await api.post('/attendance/submit', { session_id: session.id, submitted_by: 'Admin' });
+      sessionStorage.removeItem('active_session');
       setSession(null);
       setSessionName('');
       setActiveMatches([]);
@@ -60,46 +102,47 @@ export default function Monitor() {
     const video = webcam.video;
     if (!video || video.readyState !== 4) return;
 
-    // Use displayed size, not raw video resolution
     const displayWidth = video.clientWidth;
     const displayHeight = video.clientHeight;
-    const rawWidth = video.videoWidth;
-    const rawHeight = video.videoHeight;
 
     canvas.width = displayWidth;
     canvas.height = displayHeight;
 
-    // Scale factors to convert raw video coords to display coords
-    const scaleX = displayWidth / rawWidth;
-    const scaleY = displayHeight / rawHeight;
+    // Screenshot was captured at 640x480 (videoConstraints in useWebcam)
+    // deepface ran on that 640x480 image
+    // So scale from 640x480 → displayed video size
+    const CAPTURE_WIDTH = 640;
+    const CAPTURE_HEIGHT = 480;
+    const scaleX = displayWidth / CAPTURE_WIDTH;
+    const scaleY = displayHeight / CAPTURE_HEIGHT;
 
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     matches.forEach(match => {
+      // location = [top, right, bottom, left]
       const [top, right, bottom, left] = match.location;
 
-      // Apply scale factors
       const x1 = left * scaleX;
       const y1 = top * scaleY;
       const x2 = right * scaleX;
       const y2 = bottom * scaleY;
-      const boxWidth = x2 - x1;
-      const boxHeight = y2 - y1;
+      const boxW = x2 - x1;
+      const boxH = y2 - y1;
 
       // Bounding box
       ctx.strokeStyle = '#B8953F';
       ctx.lineWidth = 2;
-      ctx.strokeRect(x1, y1, boxWidth, boxHeight);
+      ctx.strokeRect(x1, y1, boxW, boxH);
 
-      // Label background
+      // Label background below box
+      const labelH = 28;
       ctx.fillStyle = '#B8953F';
-      const labelHeight = 28;
-      ctx.fillRect(x1, y2, boxWidth, labelHeight);
+      ctx.fillRect(x1, y2, boxW, labelH);
 
-      // Label text — increased font size for readability
+      // Label text
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 14px "DM Sans", sans-serif';
+      ctx.font = 'bold 15px "DM Sans", sans-serif';
       ctx.fillText(
         `${match.name}  ${(match.confidence * 100).toFixed(1)}%`,
         x1 + 6,
@@ -161,24 +204,26 @@ export default function Monitor() {
           gap: '24px',
           alignItems: 'flex-start',
           width: '100%',
-          maxWidth: '1200px',
+          maxWidth: '1400px',
           margin: '0 auto',
-          padding: '40px 40px'
+          padding: '32px 40px',
+          minHeight: '85vh'
         }}>
           
-          {/* LEFT — webcam 70% */}
-          <div style={{ flex: '0 0 70%', display: 'flex', flexDirection: 'column' }}>
+          {/* LEFT — webcam 72% */}
+          <div style={{ flex: '0 0 72%', display: 'flex', flexDirection: 'column' }}>
             <div style={{ 
               position: 'relative', 
               border: '2px solid #B8953F',
               lineHeight: 0,
-              overflow: 'hidden'
+              overflow: 'hidden',
+              minHeight: '540px'
             }}>
               <Webcam
                 ref={webcamRef}
                 audio={false}
                 screenshotFormat="image/jpeg"
-                style={{ width: '100%', height: 'auto', display: 'block' }}
+                style={{ width: '100%', height: 'auto', minHeight: '540px', objectFit: 'cover', display: 'block' }}
                 videoConstraints={{ width: 1280, height: 720, facingMode: 'user' }}
               />
               <canvas
@@ -196,18 +241,20 @@ export default function Monitor() {
             <button 
               className="btn-primary" 
               onClick={submitSession}
-              style={{ marginTop: '16px', width: '100%' }}
+              style={{ marginTop: '20px', width: '100%' }}
             >
               FINALIZE SESSION
             </button>
           </div>
 
-          {/* RIGHT — detected list 30% */}
+          {/* RIGHT — detected list 28% */}
           <div style={{ 
-            flex: '0 0 calc(30% - 24px)',
+            flex: '0 0 calc(28% - 24px)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '12px'
+            gap: '12px',
+            position: 'sticky',
+            top: '32px'
           }}>
             <p style={{ 
               fontSize: '12px', 

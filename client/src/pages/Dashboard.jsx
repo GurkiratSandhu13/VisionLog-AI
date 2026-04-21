@@ -24,18 +24,32 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '40px' }}>
-      <div className="gap-between-sections flex-row" style={{ justifyContent: 'center', textAlign: 'center' }}>
-        <div>
-          <h1 className="dashboard-heading">Metrics Overview</h1>
-          <p className="dashboard-subheading">AI-Powered Attendance Monitoring</p>
-        </div>
+    <div style={{ 
+      maxWidth: '1100px', 
+      margin: '0 auto', 
+      padding: '64px 40px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      textAlign: 'center'
+    }}>
+      <div style={{ marginBottom: '48px' }}>
+        <h1 className="dashboard-heading">Metrics Overview</h1>
+        <p className="dashboard-subheading">
+          AI-Powered Attendance Monitoring
+        </p>
       </div>
 
       {stats.users === 0 && stats.sessions === 0 ? (
         <div className="empty-state">No records yet</div>
       ) : (
-        <div className="cards-grid" style={{ marginBottom: '24px' }}>
+        <div className="cards-grid" style={{ 
+          marginBottom: '32px',
+          justifyContent: 'center',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 280px)',
+          gap: '28px'
+        }}>
           <div className="card text-center hover-border">
             <p className="stat-label">Total Registered</p>
             <p className="stat-number">{stats.users}</p>
